@@ -7,200 +7,316 @@
 #include <catch2/trompeloeil.hpp>
 #include <ranges>
 #include <string>
+#include <iostream>
 
 using namespace std;
 using namespace TDD;
 
-TEST_CASE("When rover is created it has given position and direction", "[creation]")
-{
-    Rover rover(0,0,'N',nullptr);
-
-    REQUIRE(rover.getX() == 0);
-    REQUIRE(rover.getY() == 0);
-    REQUIRE(rover.getDir() == 'N');
-}
-
-TEST_CASE("When turn do not change position", "[turn]")
-{
-    Rover rover(10, 20, 'N', nullptr);
-
-    rover.turn('R');
-
-    REQUIRE(rover.getX() == 10);
-    REQUIRE(rover.getY() == 20);
-}
-
-TEST_CASE("When invalid turn cmd do not turn or move", "[turn]")
-{
-    Rover rover(10, 20, 'N', nullptr);
-
-    rover.turn('X');
-
-    REQUIRE(rover.getX() == 10);
-    REQUIRE(rover.getY() == 20);
-    REQUIRE(rover.getDir() == 'N');
-}
-
-TEST_CASE("When turn change direction", "[turn]")
-{
-    auto [startDir, turn, expectedDir]  = GENERATE(
-        std::tuple{'N', 'L', 'W'},
-        std::tuple('N', 'R', 'E'),
-        std::tuple{'E', 'L', 'N'},
-        std::tuple{'E', 'R', 'S'},
-        std::tuple{'S', 'L', 'E'},
-        std::tuple{'S', 'R', 'W'},
-        std::tuple{'W', 'L', 'S'},
-        std::tuple{'W', 'R', 'N'}
-    );
-
-    DYNAMIC_SECTION("When turning " << turn << " from dir "
-                                    << startDir 
-                                    << " direction is " 
-                                    << expectedDir)
-    {
-        Rover rover(0, 0, startDir, nullptr);
-
-        rover.turn(turn);
-
-        CHECK(rover.getDir() == expectedDir);
-    }
-}
-
-TEST_CASE("When move change position accordingly to direction", "[movement]")
-{
-    auto [startPosX, startPosY, startDir, move, expectedPosX, expectedPosY]  = GENERATE(
-        std::tuple{0, 0, 'N', 'F', 0, 1},
-        std::tuple{0, 0, 'E', 'F', 1, 0},
-        std::tuple{0, 0, 'S', 'F', 0, -1},
-        std::tuple{0, 0, 'W', 'F', -1, 0},
-        std::tuple{0, 0, 'N', 'B', 0, -1},
-        std::tuple{0, 0, 'E', 'B', -1, 0},
-        std::tuple{0, 0, 'S', 'B', 0, 1},
-        std::tuple{0, 0, 'W', 'B', 1, 0}
-    );
-
-    DYNAMIC_SECTION("When moving " << move << " from position: X:" << startPosX <<", Y:" << startPosY << ", direction: " << startDir
-                                << " expected position is: X:" << expectedPosX <<", Y:" << expectedPosY)
-    {
-        Rover rover(startPosX, startPosY, startDir, nullptr);
-
-        rover.move(move);
-
-        CHECK(rover.getX() == expectedPosX);
-        CHECK(rover.getY() == expectedPosY);
-    }
-}
-
-TEST_CASE("When move do not change direction", "[movement]")
-{
-    Rover rover(10, 20, 'N', nullptr);
-
-    rover.move('F');
-
-    REQUIRE(rover.getDir() == 'N');
-}
-
-TEST_CASE("When invalid move cmd do not turn or move", "[movement]")
-{
-    Rover rover(10, 20, 'N', nullptr);
-
-    rover.move('X');
-
-    REQUIRE(rover.getX() == 10);
-    REQUIRE(rover.getY() == 20);
-    REQUIRE(rover.getDir() == 'N');
-}
-
-TEST_CASE("When given array of cmds rover change it's position", "[position]")
-{
-    Rover rover(0, 0, 'N', nullptr);
-
-    rover.run({'R', 'R', 'F', 'F', 'B', 'L'});
-
-    REQUIRE(rover.getX() == 0);
-    REQUIRE(rover.getY() == -1);
-    REQUIRE(rover.getDir() == 'E');
-}
-
-TEST_CASE("When given array of invalid cmds rover doesn't change it's position", "[position]")
-{
-    Rover rover(1, 2, 'W', nullptr);
-
-    rover.run({'X', 'Y', 'Z'});
-
-    REQUIRE(rover.getX() == 1);
-    REQUIRE(rover.getY() == 2);
-    REQUIRE(rover.getDir() == 'W');
-}
-
-class TestObstacleDetector : public ObstacleDetector
+class ObstacleDetector
 {
 public:
-    TestObstacleDetector(bool reportObstacle) : m_reportObstacle (reportObstacle)
-    {}
-
-    bool is_obstacle(int x, int y) const
-    {
-        return m_reportObstacle;
-    }
-    
-    void set_ReportObstacle(bool reportObstacle)
-    {
-        m_reportObstacle = reportObstacle;
-    }
-private:
-    bool m_reportObstacle;
+    virtual bool isObstacle(uint32_t x, uint32_t y) = 0;
 };
 
-TEST_CASE("When no obstacle rover moves on", "[obsatcle]")
+
+struct MockObstacleDetector : public ObstacleDetector
 {
-    TestObstacleDetector obstacle_detector(false);
+    MockObstacleDetector(std::vector<std::pair<uint32_t, uint32_t>> _obstacles = {}): obstacles(_obstacles) {};
+    std::vector<std::pair<uint32_t, uint32_t>> coords;
 
-    Rover rover(0, 0, 'N', &obstacle_detector);
+    bool isObstacle(uint32_t x, uint32_t y)
+    {
+        coords.push_back(std::pair(x, y));
+        return obstacles.cend() != std::find_if(obstacles.cbegin(), obstacles.cend(), 
+            [x,y](const std::pair<uint32_t, uint32_t>& obstacle)
+            {
+                return x==obstacle.first && y==obstacle.second;
+            });
+    }
 
-    rover.run({'F', 'F'});
+    std::vector<std::pair< uint32_t, uint32_t>> obstacles;
+};
 
-    REQUIRE(rover.getX() == 0);
-    REQUIRE(rover.getY() == 2);
-    REQUIRE(rover.getDir() == 'N');
+
+class Planet
+{
+public:
+    Planet(uint32_t _sizeX, uint32_t _sizeY, std::vector<std::pair< uint32_t, uint32_t>> _obstacles = {}) : sizeX(_sizeX), sizeY(_sizeY), obstacles(_obstacles){}
+    ~Planet() = default;
+
+    std::pair<uint32_t, uint32_t> getMaxXY() const { return {sizeX-1, sizeY-1};}
+    bool isObstacle(uint32_t x, uint32_t y) const
+    {
+        return obstacles.cend() != std::find_if(obstacles.cbegin(), obstacles.cend(), 
+            [x,y](const std::pair<uint32_t, uint32_t>& obstacle)
+            {
+                return x==obstacle.first && y==obstacle.second;
+            });
+    }
+private:
+    uint32_t sizeX;
+    uint32_t sizeY;
+    std::vector<std::pair< uint32_t, uint32_t>> obstacles;
+};
+
+class MarsRover 
+{
+public:
+    struct State
+    {
+        uint32_t x;
+        uint32_t y;
+        char direction;
+
+        State(uint32_t _x, uint32_t _y, char _direction) : x(_x), y(_y), direction(std::toupper(_direction)){}
+
+        friend std::ostream& operator<<(std::ostream& out, const State& state)
+        {
+            return out << "State{" << state.x << ", " << state.y << ", " << state.direction << "}";
+        }
+
+        bool operator==(const State& other) const = default;
+    };
+    MarsRover(const State& _state, const Planet& _planet, ObstacleDetector& _obstacleDetector) : state(_state), planet(_planet), obstacleDetector(_obstacleDetector)  {};
+    ~MarsRover() = default;
+    const State& getState() { return state;}
+    State command(const std::string& commands) 
+    {
+        for (const char command : commands)
+        {
+            auto res = true;
+            
+            switch(std::toupper(command))
+            {
+                case 'F': 
+                    res = stepForward();
+                break;
+                case 'B': 
+                    res = stepBackward();
+                break;
+                case 'L': 
+                    rotateLeft();
+                break;
+                case 'R':
+                    rotateRight();
+                break;
+            }
+            if(!res)
+            {
+                break;
+            }
+        }
+        return state;
+    };
+    
+    bool stepForward()
+    {
+        auto [maxX, maxY] = planet.getMaxXY();
+        auto newX = state.x;
+        auto newY= state.y;
+        switch (state.direction)
+        {
+            case 'N':
+                newY--;
+                break;
+            case 'S':
+                newY++;
+                break;
+            case 'W':
+                newX--;
+                break;
+            case 'E':
+                newX++;
+                break;
+        }
+        if(std::numeric_limits<uint32_t>::max() == newX) newX = maxX;
+        else if (maxX+1 == newX) newX = 0;
+        if(std::numeric_limits<uint32_t>::max() == newY) newY = maxY;
+        else if (maxY+1 == newY) newY = 0;
+
+        if(!obstacleDetector.isObstacle(newX, newY))
+        {
+            state.x = newX;
+            state.y = newY;
+            return true;
+        }
+        return false;
+    }
+
+    bool stepBackward()
+    {
+        rotateLeft();
+        rotateLeft();
+        auto res = stepForward();
+        rotateRight();
+        rotateRight();
+
+        return res;
+    }
+
+    void rotateLeft()
+    {
+        switch (state.direction)
+        {
+            case 'N': state.direction = 'W'; break;
+            case 'W': state.direction = 'S'; break;
+            case 'S': state.direction = 'E'; break;
+            case 'E': state.direction = 'N'; break;
+        }
+    }
+
+    void rotateRight()
+    {
+        switch (state.direction)
+        {
+            case 'N': state.direction = 'E'; break;
+            case 'W': state.direction = 'N'; break;
+            case 'S': state.direction = 'W'; break;
+            case 'E': state.direction = 'S'; break;
+        }
+    }
+
+private:
+    State state;
+    const Planet& planet;
+    ObstacleDetector& obstacleDetector;
+};
+
+TEST_CASE("MarsRover")
+{
+    SECTION("after init - reports initial state")
+    {
+        auto [x, y, direction] = GENERATE(std::tuple{1u, 1u, 'W'}, std::tuple{0u, 0u, 'N'}, std::tuple{0u, 0u, 'S'}, std::tuple{0u, 0u, 'E'});   
+        
+        Planet planet{10, 10};
+        MockObstacleDetector mockObstacleDetector;
+        MarsRover r({x, y, direction}, planet, mockObstacleDetector);
+
+        REQUIRE(r.getState() == MarsRover::State{x,y, direction});
+    }   
+
+    SECTION("Basic moves")
+    {
+        Planet planet{10, 10};
+        MockObstacleDetector mockObstacleDetector;
+        auto [initState, command, expectedState] = GENERATE(
+            std::tuple{MarsRover::State{1u, 1u, 'N'}, "F", MarsRover::State{1u, 0u, 'N'}},
+            std::tuple{MarsRover::State{1u, 1u, 'W'}, "F", MarsRover::State{0u, 1u, 'W'}},
+            std::tuple{MarsRover::State{1u, 1u, 's'}, "F", MarsRover::State{1u, 2u, 'S'}},
+            std::tuple{MarsRover::State{1u, 1u, 'E'}, "F", MarsRover::State{2u, 1u, 'E'}},
+
+            std::tuple{MarsRover::State{2u, 2u, 'N'}, "B", MarsRover::State{2u, 3u, 'N'}},
+            std::tuple{MarsRover::State{2u, 2u, 'W'}, "B", MarsRover::State{3u, 2u, 'W'}},
+            std::tuple{MarsRover::State{2u, 2u, 's'}, "B", MarsRover::State{2u, 1u, 'S'}},
+            std::tuple{MarsRover::State{2u, 2u, 'E'}, "B", MarsRover::State{1u, 2u, 'E'}},
+
+            std::tuple{MarsRover::State{3u, 3u, 'N'}, "L", MarsRover::State{3u, 3u, 'W'}},
+            std::tuple{MarsRover::State{3u, 3u, 'W'}, "L", MarsRover::State{3u, 3u, 'S'}},
+            std::tuple{MarsRover::State{3u, 3u, 's'}, "L", MarsRover::State{3u, 3u, 'E'}},
+            std::tuple{MarsRover::State{3u, 3u, 'E'}, "L", MarsRover::State{3u, 3u, 'N'}},
+
+            std::tuple{MarsRover::State{4u, 4u, 'N'}, "R", MarsRover::State{4u, 4u, 'E'}},
+            std::tuple{MarsRover::State{4u, 4u, 'W'}, "R", MarsRover::State{4u, 4u, 'N'}},
+            std::tuple{MarsRover::State{4u, 4u, 's'}, "R", MarsRover::State{4u, 4u, 'W'}},
+            std::tuple{MarsRover::State{4u, 4u, 'E'}, "R", MarsRover::State{4u, 4u, 'S'}}
+            );   
+
+        MarsRover r(initState, planet, mockObstacleDetector);
+        r.command(command);
+        REQUIRE(r.getState() == expectedState);
+    }
 }
 
-TEST_CASE("When obstacle rover doesn't moves on", "[obstacle]")
+TEST_CASE("Wrapping edges")
 {
-    TestObstacleDetector obstacle_detector(true);
+    Planet planet(10u,10u);
+    MockObstacleDetector mockObstacleDetector;
+    auto [initState, command, expectedState] = GENERATE(
+        std::tuple{MarsRover::State{0u, 2u, 'W'}, "F", MarsRover::State{9u, 2u,'W'}},
+        std::tuple{MarsRover::State{9u, 3u, 'E'}, "F", MarsRover::State{0u, 3u,'E'}},
+        std::tuple{MarsRover::State{4u, 0u, 'N'}, "F", MarsRover::State{4u, 9u,'N'}},
+        std::tuple{MarsRover::State{5u, 9u, 'S'}, "F", MarsRover::State{5u, 0u,'S'}}
+        );   
 
-    Rover rover(0, 0, 'N', &obstacle_detector);
-
-    rover.run({'F', 'F'});
-
-    REQUIRE(rover.getX() == 0);
-    REQUIRE(rover.getY() == 0);
-    REQUIRE(rover.getDir() == 'N');
+    MarsRover r(initState, planet, mockObstacleDetector);
+    r.command(command);
+    REQUIRE(r.getState() == expectedState);
 }
 
-TEST_CASE("When obstacle rover reports it", "[obstacle]")
+TEST_CASE("Planet obstacles")
 {
-    TestObstacleDetector obstacle_detector(true);
-    Rover rover(0, 0, 'N', &obstacle_detector);
-    rover.run({'F', 'F'});
-
-    REQUIRE(rover.reportObstacle() == true);
-    REQUIRE(rover.getX() == 0);
-    REQUIRE(rover.getY() == 0);
-    REQUIRE(rover.getDir() == 'N');
+    Planet planet(5u, 5u, {{1u,2u}, {3u,4u}});
+    for (auto x = 0u; x < 5u; ++x)
+    {
+        for (auto y = 0u; y < 5u; ++y)
+        {
+            REQUIRE(planet.isObstacle(x,y) == ((x==1u && y==2u) || (x==3u && y==4u)));
+        }
+    }
 }
 
-TEST_CASE("When new run commands is provided obstacle report is cleared", "[obstacle]")
+TEST_CASE("Rover Obstacle")
 {
-    TestObstacleDetector obstacle_detector(true);
-    Rover rover(0, 0, 'N', &obstacle_detector);
-    rover.run({'F', 'F'});
-    obstacle_detector.set_ReportObstacle(false);
-    rover.run({'F', 'F'});
+    Planet planet(10u,10u);
+    
+    SECTION("no obstacle")
+    {
+        MockObstacleDetector obstacle_detector{};
 
-    REQUIRE(rover.reportObstacle() == false);
-    REQUIRE(rover.getX() == 0);
-    REQUIRE(rover.getY() == 2);
-    REQUIRE(rover.getDir() == 'N');
+        MarsRover r(MarsRover::State{2u, 2u, 'N'}, planet, obstacle_detector);
+
+        r.command("F");
+        SECTION("rover moves on")
+        {
+            REQUIRE(r.getState() == MarsRover::State{2u, 1u, 'N' });
+        }
+
+        SECTION("asks for obstacle")
+        {
+            REQUIRE(obstacle_detector.coords.size() == 1);
+            REQUIRE(obstacle_detector.coords.back() == std::pair{2u, 1u});
+
+            r.command("F");
+            SECTION("rover moves on one more time")
+            {
+                REQUIRE(r.getState() == MarsRover::State{2u, 0u, 'N' });
+            }
+
+            SECTION("asks for obstacle one more time")
+            {
+                REQUIRE(obstacle_detector.coords.size() == 2);
+                REQUIRE(obstacle_detector.coords.back() == std::pair{2u, 0u});
+
+            }
+        }
+    }
+    SECTION("obstacle")
+    {
+        MockObstacleDetector obstacle_detector{{{1u, 9u}}};
+        MarsRover r(MarsRover::State{2u, 9u, 'W'}, planet, obstacle_detector);
+
+       
+        SECTION("rover moves on into the obstacle")
+        {
+            REQUIRE(r.command("F") == MarsRover::State{2u, 9u, 'W' });    
+
+            SECTION("asks for obstacle")
+            {
+                REQUIRE(obstacle_detector.coords.size() == 1);
+                REQUIRE(obstacle_detector.coords.back() == std::pair{1u, 9u});
+            }
+        }
+
+        SECTION("rover moves on into the obstacle in the midle of the sequence")
+        {
+            REQUIRE(r.command("BLLBBRBLRLFFFFFF") == MarsRover::State{2u, 9u, 'E' });    
+
+            SECTION("asks for obstacle")
+            {
+                REQUIRE(obstacle_detector.coords.size() == 3);
+                REQUIRE(obstacle_detector.coords.back() == std::pair{1u, 9u});
+            }
+        }
+
+    }
 }
